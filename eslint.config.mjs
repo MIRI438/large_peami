@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Standalone Node script (WhatsApp bot), not React code.
+    "bot/**",
   ]),
 ]);
 

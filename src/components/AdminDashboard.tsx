@@ -12,6 +12,7 @@ type Order = {
   deliveryType: string;
   address: string;
   notes: string;
+  source: string;
   createdAt: string;
   customer: { name: string; phone: string };
   items: { quantity: number; price: number; product: { name: string; unit: string } }[];
@@ -32,8 +33,15 @@ type Product = {
   price: number;
   stockQty: number;
   inStock: boolean;
+  imageUrl: string;
   category: { name: string };
 };
+
+type WhatsappBotStatus =
+  | { state: "starting" }
+  | { state: "qr"; qrDataUrl: string }
+  | { state: "connected"; phone: string; connectedAt: string }
+  | { state: "disconnected"; reason: string };
 
 type Settings = {
   storeName: string;
@@ -54,8 +62,14 @@ const TABS = [
   { key: "orders", label: "הזמנות" },
   { key: "customers", label: "לקוחות" },
   { key: "products", label: "מלאי" },
+  { key: "whatsapp", label: "בוט וואטסאפ" },
   { key: "settings", label: "הגדרות" },
 ] as const;
+
+const SOURCE_LABELS: Record<string, string> = {
+  web: "🌐 אתר",
+  "whatsapp-bot": "💬 בוט וואטסאפ",
+};
 
 type TabKey = (typeof TABS)[number]["key"];
 
@@ -68,6 +82,7 @@ export default function AdminDashboard() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [waStatus, setWaStatus] = useState<WhatsappBotStatus | null>(null);
 
   async function loadAll() {
     setLoading(true);
@@ -88,6 +103,24 @@ export default function AdminDashboard() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial data load on mount
     void loadAll();
   }, []);
+
+  useEffect(() => {
+    if (tab !== "whatsapp") return;
+
+    let cancelled = false;
+    async function poll() {
+      const res = await fetch("/api/admin/whatsapp-status");
+      if (cancelled || !res.ok) return;
+      const data = await res.json();
+      setWaStatus(data.status ?? null);
+    }
+    void poll();
+    const interval = setInterval(poll, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [tab]);
 
   async function updateOrderStatus(orderId: string, status: string) {
     setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, status } : o)));
@@ -176,6 +209,9 @@ export default function AdminDashboard() {
                     <div className="mb-2 flex items-center justify-between">
                       <p className="font-bold text-gray-800">
                         הזמנה #{o.orderNumber} · ₪{o.total.toFixed(2)}
+                        <span className="ms-2 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-normal text-gray-500">
+                          {SOURCE_LABELS[o.source] ?? o.source}
+                        </span>
                       </p>
                       <select
                         value={o.status}
@@ -233,40 +269,95 @@ export default function AdminDashboard() {
             {tab === "products" && (
               <div className="space-y-2">
                 {products.map((p) => (
-                  <div
-                    key={p.id}
-                    className="flex items-center gap-3 rounded-xl bg-white p-3 shadow-sm ring-1 ring-black/5"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-medium text-gray-800">{p.name}</p>
-                      <p className="text-xs text-gray-400">{p.category.name}</p>
+                  <div key={p.id} className="rounded-xl bg-white p-3 shadow-sm ring-1 ring-black/5">
+                    <div className="flex items-center gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-medium text-gray-800">{p.name}</p>
+                        <p className="text-xs text-gray-400">{p.category.name}</p>
+                      </div>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={p.price}
+                        onChange={(e) => updateProduct(p.id, { price: parseFloat(e.target.value) || 0 })}
+                        className="w-20 rounded-lg border border-gray-300 px-2 py-1 text-sm"
+                      />
+                      <input
+                        type="number"
+                        value={p.stockQty}
+                        onChange={(e) =>
+                          updateProduct(p.id, { stockQty: parseInt(e.target.value, 10) || 0 })
+                        }
+                        className="w-16 rounded-lg border border-gray-300 px-2 py-1 text-sm"
+                        title="כמות במלאי"
+                      />
+                      <button
+                        onClick={() => updateProduct(p.id, { inStock: !p.inStock })}
+                        className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${
+                          p.inStock ? "bg-[#dcf8c6] text-[#075e54]" : "bg-gray-200 text-gray-500"
+                        }`}
+                      >
+                        {p.inStock ? "זמין" : "אזל"}
+                      </button>
                     </div>
                     <input
-                      type="number"
-                      step="0.1"
-                      value={p.price}
-                      onChange={(e) => updateProduct(p.id, { price: parseFloat(e.target.value) || 0 })}
-                      className="w-20 rounded-lg border border-gray-300 px-2 py-1 text-sm"
+                      value={p.imageUrl}
+                      onChange={(e) => setProducts((prev) => prev.map((x) => (x.id === p.id ? { ...x, imageUrl: e.target.value } : x)))}
+                      onBlur={(e) => updateProduct(p.id, { imageUrl: e.target.value })}
+                      placeholder="קישור לתמונת מוצר (אופציונלי, נשלח גם בבוט הוואטסאפ)"
+                      className="mt-2 w-full rounded-lg border border-gray-200 px-2 py-1 text-xs text-gray-500"
                     />
-                    <input
-                      type="number"
-                      value={p.stockQty}
-                      onChange={(e) =>
-                        updateProduct(p.id, { stockQty: parseInt(e.target.value, 10) || 0 })
-                      }
-                      className="w-16 rounded-lg border border-gray-300 px-2 py-1 text-sm"
-                      title="כמות במלאי"
-                    />
-                    <button
-                      onClick={() => updateProduct(p.id, { inStock: !p.inStock })}
-                      className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${
-                        p.inStock ? "bg-[#dcf8c6] text-[#075e54]" : "bg-gray-200 text-gray-500"
-                      }`}
-                    >
-                      {p.inStock ? "זמין" : "אזל"}
-                    </button>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {tab === "whatsapp" && (
+              <div className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-black/5">
+                <h2 className="mb-1 text-lg font-bold text-gray-800">🤖 בוט הזמנות בתוך וואטסאפ</h2>
+                <p className="mb-4 text-sm text-gray-500">
+                  לקוחות כותבים לך בוואטסאפ ומזמינים ישירות בתוך הצ׳אט, בלי אתר. הבוט צריך לרוץ
+                  כתהליך נפרד בשרת (<code className="rounded bg-gray-100 px-1">npm run bot</code>) —
+                  זה לא קורה אוטומטית עם הפעלת האתר.
+                </p>
+
+                {!waStatus && <p className="text-gray-400">טוען סטטוס...</p>}
+
+                {waStatus?.state === "starting" && (
+                  <p className="rounded-lg bg-yellow-50 p-3 text-sm text-yellow-700">
+                    🟡 הבוט מתחיל להתחבר...
+                  </p>
+                )}
+
+                {waStatus?.state === "qr" && (
+                  <div className="text-center">
+                    <p className="mb-3 text-sm text-gray-600">
+                      פתחי וואטסאפ בטלפון העסקי → הגדרות → מכשירים מקושרים → קישור מכשיר, וסרקי:
+                    </p>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={waStatus.qrDataUrl}
+                      alt="QR code להתחברות לוואטסאפ"
+                      className="mx-auto h-56 w-56 rounded-lg border"
+                    />
+                  </div>
+                )}
+
+                {waStatus?.state === "connected" && (
+                  <div className="rounded-lg bg-[#dcf8c6] p-3 text-sm text-[#075e54]">
+                    ✅ מחובר לוואטסאפ! מספר: {waStatus.phone}
+                    <br />
+                    <span className="text-xs text-gray-500">
+                      מחובר מאז {new Date(waStatus.connectedAt).toLocaleString("he-IL")}
+                    </span>
+                  </div>
+                )}
+
+                {waStatus?.state === "disconnected" && (
+                  <p className="rounded-lg bg-red-50 p-3 text-sm text-red-600">
+                    🔴 לא מחובר — {waStatus.reason}
+                  </p>
+                )}
               </div>
             )}
 

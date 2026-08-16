@@ -25,6 +25,7 @@ export async function PATCH(request: Request) {
     price?: number;
     stockQty?: number;
     inStock?: boolean;
+    imageUrl?: string;
   };
 
   const product = await prisma.product.update({
@@ -33,6 +34,7 @@ export async function PATCH(request: Request) {
       ...(body.price !== undefined ? { price: body.price } : {}),
       ...(body.stockQty !== undefined ? { stockQty: body.stockQty } : {}),
       ...(body.inStock !== undefined ? { inStock: body.inStock } : {}),
+      ...(body.imageUrl !== undefined ? { imageUrl: body.imageUrl } : {}),
     },
   });
 

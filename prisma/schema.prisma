@@ -25,6 +25,7 @@ model Product {
   price       Float
   unit        String      @default("יחידה")
   imageEmoji  String      @default("🛍️")
+  imageUrl    String      @default("")
   inStock     Boolean     @default(true)
   stockQty    Int         @default(0)
   categoryId  String
@@ -56,6 +57,7 @@ model Order {
   address     String      @default("")
   notes       String      @default("")
   waMessage   String      @default("")
+  source      String      @default("web") // web | whatsapp-bot
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 }
@@ -76,4 +78,19 @@ model StoreSettings {
   whatsappPhone String  @default("972500000000")
   adminPassword String  @default("admin123")
   welcomeText   String  @default("ברוכים הבאים! 🛍️ מה תרצו להזמין היום?")
+}
+
+// Tracks the live conversation state per customer phone number for the
+// WhatsApp bot (bot/index.ts). One row per phone, overwritten as the
+// customer moves through the ordering flow.
+model BotConversation {
+  phone        String   @id
+  step         String   @default("idle")
+  cartJson     String   @default("{}")
+  customerName String   @default("")
+  deliveryType String   @default("pickup")
+  address      String   @default("")
+  pendingProductId String @default("")
+  currentCategoryId String @default("")
+  updatedAt    DateTime @updatedAt
 }
